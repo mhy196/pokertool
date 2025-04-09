@@ -246,104 +246,90 @@ except Exception as e:
 def get_push_fold_advice(stack_bb, position, players_left):
     """
     Provides push/fold advice based on stack size, position, and players left.
-    Uses the fixed hand ranking to determine the top X% range.
-    Returns: (recommendation_string, range_list, percentage_float or None) tuple
+    Returns a 4-tuple:
+      (advice_string, range_list, percentage, tips_string)
+
+    Example:
+      -> ("Push top 18.0%", ["A2s","A3s","TT","JJ","..."], 18.0, "Some strategy tips here...")
     """
+
     # --- Input Validation ---
     if not isinstance(stack_bb, (int, float)) or stack_bb <= 0:
         # Return a specific error message
-        return ("Error: Invalid Stack Size provided.", [], None)
+        return ("Error: Invalid Stack Size provided.", [], None, "No tips available due to error.")
 
-    # --- Position Mapping ---
     position_map = {
         'SB': 'SB', 'BTN': 'B', 'CO': 'CO', 'HJ': 'HJ', 'LJ': 'LJ',
         'UTG+3': 'UTG+3', 'UTG+2': 'UTG+2', 'UTG+1': 'UTG+1', 'UTG': 'UTG'
     }
-    # Check if the input position name is valid according to the UI list
     if position not in position_map:
-         return (f"Error: Unknown input position '{position}'.", [], None)
+        return (f"Error: Unknown input position '{position}'.", [], None, "No tips available due to error.")
 
-    # Get the corresponding key for the CSV header (e.g., 'B' for 'BTN')
     mapped_position = position_map.get(position)
-    if mapped_position is None: # Should not happen if position is in position_map
-         print(f"ERROR: Logic error in position_map for input '{position}'.")
-         return (f"Error: Internal mapping failed for position '{position}'.", [], None)
+    if mapped_position is None:
+        print(f"ERROR: Logic error in position_map for '{position}'.")
+        return (f"Error: Internal mapping failed for position '{position}'.", [], None, "No tips available.")
 
-    # --- Player Count Validation ---
-    if not isinstance(players_left, int) or not (2 <= players_left <= 10): # Allow 2-10 players
-        return ("Error: Invalid Player Count (must be 2-10).", [], None)
+    if not isinstance(players_left, int) or not (2 <= players_left <= 10):
+        return ("Error: Invalid Player Count (must be 2-10).", [], None, "Tips not available for invalid player count.")
 
     # --- Check if Ranges Loaded ---
-    # Check if PUSH_FOLD_RANGES is not None and is a non-empty dictionary
     if not PUSH_FOLD_RANGES or not isinstance(PUSH_FOLD_RANGES, dict):
-         print("ERROR: PUSH_FOLD_RANGES dictionary is empty or failed to load correctly!")
-         # Return a specific error message
-         return ("Error: Push range data not available or failed to load.", [], None)
-
-    # --- Find Percentage ---
-    stack_sizes = sorted(PUSH_FOLD_RANGES.keys())
-    if not stack_sizes:
-        # This case means PUSH_FOLD_RANGES is not empty, but has no stack keys
-        print("ERROR: PUSH_FOLD_RANGES loaded but contains no stack size keys.")
-        return ("Error: No stack sizes found in loaded range data.", [], None)
+        print("ERROR: PUSH_FOLD_RANGES dictionary is empty or failed to load correctly!")
+        return ("Error: Push range data not available or failed to load.", [], None, "No tips available due to data error.")
 
     # Find the closest stack size in the data
+    stack_sizes = sorted(PUSH_FOLD_RANGES.keys())
+    if not stack_sizes:
+        print("ERROR: PUSH_FOLD_RANGES loaded but contains no stack size keys.")
+        return ("Error: No stack sizes found in loaded range data.", [], None, "Tips not available.")
+
     try:
         closest_stack = min(stack_sizes, key=lambda x: abs(x - stack_bb))
     except Exception as e:
-         print(f"ERROR finding closest stack for {stack_bb} among {stack_sizes}: {e}")
-         return (f"Error processing stack size {stack_bb}BB.", [], None)
-
-    # print(f"DEBUG: Input stack: {stack_bb}, Closest stack in data: {closest_stack}") # Uncomment for verbose debug
+        print(f"ERROR finding closest stack for {stack_bb} among {stack_sizes}: {e}")
+        return (f"Error processing stack size {stack_bb}BB.", [], None, "No tips due to stack lookup error.")
 
     position_data = PUSH_FOLD_RANGES.get(closest_stack)
     if position_data is None or not isinstance(position_data, dict):
-         # This should ideally not happen if closest_stack came from the keys
-         print(f"ERROR: Corrupt or missing data for stack key {closest_stack} in PUSH_FOLD_RANGES.") # Debug
-         # Return a specific error message
-         return (f"Error: No valid range data found for stack size near {stack_bb}BB", [], None)
+        print(f"ERROR: Missing data for stack key {closest_stack} in PUSH_FOLD_RANGES.")
+        return (f"Error: No valid range data for stack near {stack_bb}BB", [], None, "No tips available.")
 
-    # print(f"DEBUG: Data for stack {closest_stack}: {position_data}") # Uncomment for verbose debug
-
-    # *** CRITICAL LOOKUP using the mapped_position key ***
     percentage = position_data.get(mapped_position)
-    # print(f"DEBUG: Looked up percentage for key '{mapped_position}': {percentage}") # Uncomment for verbose debug
-
     if percentage is None:
-        # This is where the previous error occurred.
         available_keys = list(position_data.keys())
-        print(f"ERROR: Key '{mapped_position}' (mapped from '{position}') not found for stack {closest_stack}BB.") # Debug Log
-        print(f"DEBUG: Available keys in data for stack {closest_stack}BB: {available_keys}") # Debug Log
-        # Return specific user-facing error
-        return (f"Error: No range data found for position '{position}' at {closest_stack}BB stack in CSV.", [], None)
+        print(f"ERROR: Key '{mapped_position}' (from '{position}') not found for stack {closest_stack}BB.")
+        print(f"DEBUG: Available keys: {available_keys}")
+        return (f"Error: No range data for position '{position}' at {closest_stack}BB stack.", [], None, "No tips available.")
 
-    # Validate percentage type before using it
     if not isinstance(percentage, (int, float)):
-        print(f"ERROR: Percentage value for {closest_stack}BB / {mapped_position} is not a number: {percentage}")
-        return (f"Error: Invalid percentage data for {position} at {closest_stack}BB.", [], None)
+        print(f"ERROR: Percentage value for {closest_stack}BB/{mapped_position} is not a number: {percentage}")
+        return (f"Error: Invalid percentage data for {position} at {closest_stack}BB.", [], None, "No tips for data error.")
 
     # --- Generate Hand Range ---
     try:
-        # Use the corrected get_top_hands_by_percentage which uses the fixed ranking
-        range_list = get_top_hands_by_percentage(percentage)
-        # Check if the function returned a list (even if empty)
+        range_list = get_top_hands_by_percentage(percentage)  # Must exist in your code
         if not isinstance(range_list, list):
-             print(f"ERROR: get_top_hands_by_percentage returned unexpected type {type(range_list)} for {percentage}%.")
-             # Return percentage as it was read correctly from CSV
-             return ("Error generating hand range.", [], percentage)
-
-    except NameError: # Should not happen if defined in same file
-         print("ERROR: get_top_hands_by_percentage function not defined or available!")
-         # Return percentage even if range generation failed
-         return ("Code Error: Hand generation function missing.", [], percentage)
+            print(f"ERROR: get_top_hands_by_percentage returned type {type(range_list)} for {percentage}%.")
+            return ("Error generating hand range.", [], percentage, "No tips due to range generation error.")
+    except NameError:
+        print("ERROR: get_top_hands_by_percentage function not defined!")
+        return ("Code Error: Hand generation function missing.", [], percentage, "No tips - function missing.")
     except Exception as e:
         print(f"ERROR generating hand range for {percentage}%: {e}")
-        # Return percentage even if range generation failed
-        return (f"Runtime Error generating range: {e}", [], percentage)
+        return (f"Runtime Error generating range: {e}", [], percentage, "No tips - runtime error in range gen.")
 
-    # --- Return Result ---
-    advice_string = f"Push top {percentage:.1f}%" # Simpler advice string
-    return (advice_string, range_list, percentage) # Return all three
+    # --- Build Advice & Tips ---
+    advice_string = f"Push top {percentage:.1f}%"
+    # Example tips: adjust or fill in with your real strategy text
+    tips_string = (
+        f"With around {closest_stack}BB in {position}, pushing around {percentage:.1f}% can be profitable. "
+        "Consider table dynamics and how many players are left to act."
+    )
+
+    # Return the 4-tuple
+    return (advice_string, range_list, percentage, tips_string)
+
 
 
 # --- Other Calculation Functions (Pot Odds, Equity, MDF, SPR etc.) ---
