@@ -28,7 +28,7 @@ except Exception as e:
 ######################
 # Configuration & Constants
 ######################
-POSITIONS = ["SB", "B", "CO", "HJ", "LJ", "UTG+3", "UTG+2", "UTG+1", "UTG"]
+POSITIONS = ["SB", "B", "CO", "HJ", "LJ", "UTG+3", "UTG+2", "UTG+1"]
 MAX_QUESTIONS = 5
 CARD_IMG_WIDTH = 170
 FEEDBACK_DELAY_SECONDS = 2.0  # 2 seconds delay after user answers
@@ -134,7 +134,7 @@ def initialize_session_state():
         _reset_quiz_state()
     elif "scenarios" not in st.session_state or not st.session_state.scenarios:
         _reset_quiz_state()
-    elif st.session_state.scenarios and len(st.session_state.scenarios[0]) != 6:
+    elif st.session_state.scenarios and len(st.session_state.scenarios[0]) != 5:
         _reset_quiz_state()
 
 def _reset_quiz_state():
@@ -232,7 +232,7 @@ def show_feedback_ui():
     Displays only a feedback message + real tips, then auto-advances after 2s.
     """
     idx = st.session_state.current_index
-    hand, stack, pos, players, c1, c2 = st.session_state.scenarios[idx]
+    hand, stack, pos, c1, c2 = st.session_state.scenarios[idx]
     user_action = st.session_state.user_choice
 
     if not logic_available:
