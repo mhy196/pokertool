@@ -242,7 +242,7 @@ def show_feedback_ui():
         # In your poker_logic, ensure we return a 4th item: tips_str
         # e.g.: (advice_str, push_range, percentage, tips_str)
         try:
-            advice_str, push_range, percentage, tips_str = get_push_fold_advice(stack, pos)
+            advice_str, push_range, percentage, tips_str = get_push_fold_advice(stack, pos, 6)  # Using default 6 players left
             if isinstance(advice_str, str) and "Error:" in advice_str:
                 push_range = None
                 percentage = None
