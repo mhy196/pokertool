@@ -28,7 +28,7 @@ except Exception as e:
 ######################
 # Configuration & Constants
 ######################
-POSITIONS = ["SB", "B", "CO", "HJ", "LJ"]
+POSITIONS = ["SB", "B", "CO", "HJ", "LJ", "UTG+3", "UTG+2", "UTG+1", "UTG"]
 MAX_QUESTIONS = 5
 CARD_IMG_WIDTH = 170
 FEEDBACK_DELAY_SECONDS = 2.0  # 2 seconds delay after user answers
