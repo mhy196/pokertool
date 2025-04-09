@@ -1,286 +1,339 @@
-##########################################
 # poker_logic.py
-# Updated to incorporate a custom push/fold ranking system 
-# that prioritizes pairs, strong A combos, etc.
-##########################################
+# Contains the core poker calculation functions
 
 import math
 import itertools
-import random
+import random # Import random for safer selection
+# Make sure treys is installed: pip install treys
+try:
+    from treys import Card, Evaluator, Deck # Import treys components
+except ImportError:
+    print("ERROR: 'treys' library not found. Please install it using: pip install treys")
+    # Optionally raise the error again or exit if treys is critical
+    raise
 import csv
 import os
 
-# Attempt to import treys for card evaluations (optional if you need it)
-try:
-    from treys import Card, Evaluator, Deck
-except ImportError:
-    print("WARNING: 'treys' library not found. If you need card evaluation, install it via: pip install treys")
-    Card = None
-    Evaluator = None
-    Deck = None
-
-########################
-# Basic Poker Constants
-########################
+# --- Hand Range Constants ---
 RANKS = "AKQJT98765432"
 TOTAL_COMBOS = 1326
-SUITS_TREYS = "shdc"  # For treys usage if needed
+SUITS_TREYS = "shdc" # Spades, Hearts, Diamonds, Clubs
 
-# This is your custom push/fold hand ordering that prioritizes pairs first, 
-# then suited Aces, etc. It's exactly what you had in your code.
+# --- Canonical Hand Ranking (Defines "Top X%") ---
+# This list dictates the order of strength. Strongest hands first.
+# Pairs > Suited High Cards > Offsuit High Cards > Suited Connectors > etc.
+# (Ensure this order matches standard push/fold priorities)
 SIMPLIFIED_HAND_RANKING = [
     # Pairs (Strongest to Weakest)
-    "AA","KK","QQ","JJ","TT","99","88","77","66","55","44","33","22",
+    "AA", "KK", "QQ", "JJ", "TT", "99", "88", "77", "66", "55", "44", "33", "22",
     # Suited Aces
-    "AKs","AQs","AJs","ATs","A9s","A8s","A7s","A6s","A5s","A4s","A3s","A2s",
+    "AKs", "AQs", "AJs", "ATs", "A9s", "A8s", "A7s", "A6s", "A5s", "A4s", "A3s", "A2s",
     # Suited Kings
-    "KQs","KJs","KTs","K9s","K8s","K7s","K6s","K5s","K4s","K3s","K2s",
+    "KQs", "KJs", "KTs", "K9s", "K8s", "K7s", "K6s", "K5s", "K4s", "K3s", "K2s",
     # Suited Queens
-    "QJs","QTs","Q9s","Q8s","Q7s","Q6s","Q5s","Q4s","Q3s","Q2s",
+    "QJs", "QTs", "Q9s", "Q8s", "Q7s", "Q6s", "Q5s", "Q4s", "Q3s", "Q2s",
     # Suited Jacks
-    "JTs","J9s","J8s","J7s","J6s","J5s","J4s","J3s","J2s",
+    "JTs", "J9s", "J8s", "J7s", "J6s", "J5s", "J4s", "J3s", "J2s",
     # Suited Tens
-    "T9s","T8s","T7s","T6s","T5s","T4s","T3s","T2s",
-    # Suited Nines... (etc. fill out if needed)
-    "98s","97s","96s","95s","94s","93s","92s",
-    "87s","86s","85s","84s","83s","82s",
-    "76s","75s","74s","73s","72s",
-    "65s","64s","63s","62s",
-    "54s","53s","52s",
-    "43s","42s",
+    "T9s", "T8s", "T7s", "T6s", "T5s", "T4s", "T3s", "T2s",
+    # Suited Nines ... Eight ... etc.
+    "98s", "97s", "96s", "95s", "94s", "93s", "92s",
+    "87s", "86s", "85s", "84s", "83s", "82s",
+    "76s", "75s", "74s", "73s", "72s",
+    "65s", "64s", "63s", "62s",
+    "54s", "53s", "52s",
+    "43s", "42s",
     "32s",
     # Offsuit Aces
-    "AKo","AQo","AJo","ATo","A9o","A8o","A7o","A6o","A5o","A4o","A3o","A2o",
+    "AKo", "AQo", "AJo", "ATo", "A9o", "A8o", "A7o", "A6o", "A5o", "A4o", "A3o", "A2o",
     # Offsuit Kings
-    "KQo","KJo","KTo","K9o","K8o","K7o","K6o","K5o","K4o","K3o","K2o",
+    "KQo", "KJo", "KTo", "K9o", "K8o", "K7o", "K6o", "K5o", "K4o", "K3o", "K2o",
     # Offsuit Queens
-    "QJo","QTo","Q9o","Q8o","Q7o","Q6o","Q5o","Q4o","Q3o","Q2o",
+    "QJo", "QTo", "Q9o", "Q8o", "Q7o", "Q6o", "Q5o", "Q4o", "Q3o", "Q2o",
     # Offsuit Jacks
-    "JTo","J9o","J8o","J7o","J6o","J5o","J4o","J3o","J2o",
-    # Offsuit Tens ...
-    "T9o","T8o","T7o","T6o","T5o","T4o","T3o","T2o",
-    "98o","97o","96o","95o","94o","93o","92o",
-    "87o","86o","85o","84o","83o","82o",
-    "76o","75o","74o","73o","72o",
-    "65o","64o","63o","62o",
-    "54o","53o","52o",
-    "43o","42o",
+    "JTo", "J9o", "J8o", "J7o", "J6o", "J5o", "J4o", "J3o", "J2o",
+    # Offsuit Tens ... etc.
+    "T9o", "T8o", "T7o", "T6o", "T5o", "T4o", "T3o", "T2o",
+    "98o", "97o", "96o", "95o", "94o", "93o", "92o",
+    "87o", "86o", "85o", "84o", "83o", "82o",
+    "76o", "75o", "74o", "73o", "72o",
+    "65o", "64o", "63o", "62o",
+    "54o", "53o", "52o",
+    "43o", "42o",
     "32o"
 ]
 
-########################
-# Utility: get combos
-########################
+# Generate all 169 canonical hand representations (e.g., "AKs", "77", "T9o")
+def get_all_hands():
+    """Returns the predefined canonical hand ranking list."""
+    # This ensures consistency and uses the established order
+    return list(SIMPLIFIED_HAND_RANKING)
+
 def get_hand_combos(hand_str):
-    """
-    Returns how many combos a canonical hand string has:
-    - Pair => 6 combos
-    - Suited => 4 combos
-    - Offsuit => 12 combos
-    """
-    if not isinstance(hand_str, str):
-        return 0
-    if len(hand_str) == 2:
-        # Pair
-        if hand_str[0] in RANKS and hand_str[1] == hand_str[0]:
-            return 6
-        else:
+    """Calculates the number of combos for a specific hand string."""
+    if not isinstance(hand_str, str): return 0 # Handle non-string input
+    if len(hand_str) == 2: # Pocket pair (e.g., "AA", "77")
+        # Basic validation
+        if hand_str[0] not in RANKS or hand_str[1] not in RANKS or hand_str[0] != hand_str[1]:
             return 0
+        return 6
     elif len(hand_str) == 3:
-        if hand_str[0] in RANKS and hand_str[1] in RANKS and hand_str[0] != hand_str[1]:
-            if hand_str[2] == 's':
-                return 4
-            elif hand_str[2] == 'o':
-                return 12
-    return 0
+        # Basic validation
+        if hand_str[0] not in RANKS or hand_str[1] not in RANKS or hand_str[0] == hand_str[1]:
+             return 0
+        if hand_str[2] == 's': # Suited (e.g., "AKs", "T9s")
+            return 4
+        elif hand_str[2] == 'o': # Offsuit (e.g., "AKo", "T9o")
+            return 12
+    return 0 # Invalid format
 
-def calculate_range_percentage(hand_range):
-    """
-    Calculates what percentage of total combos a range represents.
-    hand_range: set or list of canonical hand strings (e.g. ["AA", "AKs"])
-    Returns float percentage (0-100)
-    """
-    if not isinstance(hand_range, (list, set)) or not hand_range:
-        return 0.0
-    total_combos = sum(get_hand_combos(h) for h in hand_range)
-    return (total_combos / TOTAL_COMBOS) * 100.0
+def calculate_range_percentage(selected_hands_set):
+    """Calculates the percentage of total combos represented by the selected hands."""
+    if not isinstance(selected_hands_set, set): return 0.0 # Expecting a set
+    current_combos = sum(get_hand_combos(hand) for hand in selected_hands_set)
+    return (current_combos / TOTAL_COMBOS) * 100 if TOTAL_COMBOS > 0 else 0.0
 
-########################
-# Utility: top X% 
-########################
-def get_top_hands_by_percentage(percentage):
-    """
-    Returns a list of canonical hands that cover top `percentage` of combos
-    based on SIMPLIFIED_HAND_RANKING. We sum combos until we reach 
-    (TOTAL_COMBOS * percentage/100). 
-    """
-    if not isinstance(percentage, (int,float)) or percentage <= 0:
-        return []
-    if percentage >= 100:
-        # entire ranking
-        return list(SIMPLIFIED_HAND_RANKING)
+# --- Push/Fold Logic ---
 
-    combos_needed = TOTAL_COMBOS * (percentage / 100.0)
-    selected_hands = []
-    running_combos = 0
-
-    for hand in SIMPLIFIED_HAND_RANKING:
-        ccount = get_hand_combos(hand)
-        if ccount == 0:
-            continue
-        if running_combos < combos_needed:
-            selected_hands.append(hand)
-            running_combos += ccount
-        else:
-            break
-
-    return selected_hands
-
-########################
-# Parse CSV
-########################
 def parse_push_fold_csv(csv_data):
-    """
-    Parses lines from 'push ranges.csv' into a dictionary:
-      { stack: { 'SB': float, 'B': float, 'CO': float, ... } }
-    The CSV must have a column 'Stack' and columns for 'SB','B','CO','HJ','LJ','UTG+3','UTG+2','UTG+1','UTG'.
-    Example row:
-      Stack,SB,B,CO,HJ,LJ,UTG+3,UTG+2,UTG+1,UTG
-      3,35,50,22,18,16,14,11,10,8
-    """
+    """Parses CSV data string into a dictionary {stack: {pos: percentage}}."""
     ranges = {}
     try:
+        # Use DictReader to handle header mapping
         reader = csv.DictReader(csv_data.splitlines())
-        headers = reader.fieldnames
+        headers = reader.fieldnames # Get header names
         if not headers or 'Stack' not in headers:
-            print("ERROR: CSV missing 'Stack' column header.")
-            return {}
+             print("ERROR: CSV missing 'Stack' column header.")
+             return {}
 
-        # The columns we expect in the CSV for positions:
-        expected_pos_headers = ['SB','B','CO','HJ','LJ','UTG+3','UTG+2','UTG+1','UTG']
+        # Map CSV headers to internal keys if needed (e.g., 'B' to 'BTN')
+        # Here we assume the keys used in get_push_fold_advice ('B', 'SB' etc) match the CSV headers
+        expected_pos_headers = ['SB', 'B', 'CO', 'HJ', 'LJ', 'UTG+3', 'UTG+2', 'UTG+1', 'UTG'] # Headers expected in the CSV file
 
         for row in reader:
-            stack_str = row.get('Stack','').strip()
-            if not stack_str:
-                # skip empty stack line
-                continue
             try:
-                stack_val = float(stack_str)
-            except ValueError:
-                print(f"Skipping row with invalid stack '{stack_str}'")
-                continue
-            subdict = {}
-            for col in expected_pos_headers:
-                val_str = row.get(col,'').strip()
-                if val_str:
-                    try:
-                        subdict[col] = float(val_str)
-                    except ValueError:
-                        print(f"WARNING: Invalid float at stack={stack_val}, col={col}, val={val_str}")
-            ranges[stack_val] = subdict
+                # Clean and convert stack value
+                stack_str = row.get('Stack', '').replace('BB', '').strip()
+                stack = float(stack_str.replace(',', '.')) # Handle comma decimal separator
+
+                ranges[stack] = {}
+                for header in expected_pos_headers:
+                    # Check if header exists in the row AND the value is not None AND the value is not just whitespace
+                    if header in row and row[header] is not None and row[header].strip() != '':
+                        try:
+                            # Clean and convert percentage value
+                            percent_str = row[header].replace('%', '').strip()
+                            percentage = float(percent_str.replace(',', '.')) # Handle comma decimal separator
+                            # Store percentage directly, e.g. ranges[6.0]['B'] = 50.8
+                            ranges[stack][header] = percentage
+                        except (ValueError, TypeError):
+                            print(f"WARNING: Invalid percentage format for Stack {stack}, Pos {header}: '{row[header]}'. Skipping.")
+                    # else: # Optional: Warn if an expected header is missing or empty in a row
+                        # if header in row: print(f"INFO: Empty cell for Stack {stack}, Pos {header}.")
+                        # else: print(f"WARNING: Missing header '{header}' for Stack {stack}.")
+
+            except (ValueError, TypeError):
+                print(f"WARNING: Invalid stack format: '{row.get('Stack', '')}'. Skipping row.")
+            except Exception as e:
+                print(f"ERROR processing CSV row {row}: {e}. Skipping row.")
 
     except csv.Error as e:
         print(f"ERROR parsing CSV data: {e}")
         return {}
     except Exception as e:
-        print(f"UNEXPECTED ERROR: {e}")
+        print(f"UNEXPECTED ERROR during CSV parsing: {e}")
         return {}
 
     return ranges
 
-########################
-# Global dictionary: 
-# { stack_size: { pos: percentage } }
-########################
-PUSH_FOLD_RANGES = {}
+# --- CORRECTED: get_top_hands_by_percentage ---
+def get_top_hands_by_percentage(percentage):
+    """
+    Gets the top N% of hands based on the fixed SIMPLIFIED_HAND_RANKING list.
+    It iterates through the ranked list and adds hands until the cumulative
+    combo count reaches the target percentage.
+    """
+    # Validate percentage input
+    if not isinstance(percentage, (int, float)) or not (0 <= percentage <= 100):
+        print(f"WARNING: Invalid percentage ({percentage}, type: {type(percentage)}) requested. Returning empty range.")
+        return []
+    if percentage == 0: return [] # Handle 0% case explicitly
 
-########################
-# Attempt to load "push ranges.csv" at module load
-########################
-try:
-    module_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_file_path = os.path.join(module_dir, "push ranges.csv")
-    if os.path.isfile(csv_file_path):
-        with open(csv_file_path, 'r', encoding='utf-8') as f:
-            csv_data = f.read()
-        loaded = parse_push_fold_csv(csv_data)
-        if loaded:
-            PUSH_FOLD_RANGES = loaded
-            print("INFO: push_fold_data loaded from 'push ranges.csv' at module load.")
+    # Calculate the target number of hand combinations
+    # Use a small epsilon to handle potential floating point inaccuracies
+    target_combos = TOTAL_COMBOS * (percentage / 100.0) - 1e-9
+    selected_hands = []
+    current_combos = 0
+
+    # Iterate through the pre-defined ranked list of hands
+    for hand in SIMPLIFIED_HAND_RANKING:
+        combos = get_hand_combos(hand)
+        if combos == 0: # Skip invalid hand strings if any in ranking
+            continue
+
+        # Add the hand if we haven't reached the target combo count yet.
+        # This ensures we get the strongest hands first according to the list.
+        # Use <= target_combos to include the hand that reaches/crosses the threshold
+        if current_combos < target_combos:
+             selected_hands.append(hand)
+             current_combos += combos
+             # Optional: Stop exactly if adding the next hand would overshoot significantly?
+             # This version includes the hand that crosses the threshold.
         else:
-            print("WARNING: 'push ranges.csv' parsed but got empty data dictionary.")
+             # If adding the current hand brings us exactly to the target, add it and break
+             if abs(current_combos - target_combos) < 1e-9:
+                 # We might have already added it in the loop above if current_combos was slightly less
+                 # This check is likely redundant with the logic above but safe.
+                 if hand not in selected_hands:
+                      selected_hands.append(hand)
+                      current_combos += combos
+             break # Stop adding hands once the target combo count is met or exceeded.
+
+
+    # Debugging log (optional)
+    # actual_perc = (current_combos / TOTAL_COMBOS) * 100 if TOTAL_COMBOS > 0 else 0
+    # print(f"DEBUG: Target {percentage:.1f}% ({target_combos:.1f} combos). Selected {len(selected_hands)} hands ({current_combos} combos, {actual_perc:.1f}%).")
+
+    return selected_hands
+
+
+# Load push/fold ranges GLOBALLY when the module is imported
+PUSH_FOLD_RANGES = {} # Initialize
+try:
+    # Define the expected path relative to this script file
+    # Use os.path.abspath to handle different execution contexts better
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_file_path = os.path.join(script_dir, 'push ranges.csv')
+
+    if not os.path.exists(csv_file_path):
+         print(f"ERROR: 'push ranges.csv' not found at expected path: {csv_file_path}")
     else:
-        print(f"WARNING: 'push ranges.csv' not found in {csv_file_path}. The CSV data won't be available.")
+        # Try reading with utf-8 first, fallback if needed
+        csv_data = None
+        try:
+            with open(csv_file_path, 'r', encoding='utf-8') as f:
+                csv_data = f.read()
+        except UnicodeDecodeError:
+            print("WARNING: Failed to read CSV as UTF-8, trying default encoding.")
+            try:
+                with open(csv_file_path, 'r') as f:
+                     csv_data = f.read()
+            except Exception as e_read:
+                 print(f"ERROR: Failed to read CSV with default encoding either: {e_read}")
+
+        if csv_data:
+            PUSH_FOLD_RANGES = parse_push_fold_csv(csv_data)
+            if PUSH_FOLD_RANGES:
+                 print("INFO: Push/Fold Ranges loaded successfully at module level.")
+                 # Optional: Print loaded stacks/positions for verification
+                 # print("DEBUG: Loaded stacks:", sorted(PUSH_FOLD_RANGES.keys()))
+                 # if 6.0 in PUSH_FOLD_RANGES: print("DEBUG: Keys for 6.0BB:", PUSH_FOLD_RANGES[6.0].keys())
+            else:
+                 print("WARNING: Push/Fold Ranges loaded but resulted in an empty dictionary. Check CSV format/content and parsing logic.")
+        else:
+             print("ERROR: Failed to read any data from CSV file.")
+
+
+except FileNotFoundError:
+    # This might occur if __file__ is not defined (e.g., in some interactive environments)
+    print(f"ERROR: Could not determine script directory or 'push ranges.csv' not found relative to execution path during module load.")
 except Exception as e:
-    print(f"ERROR loading 'push ranges.csv' at import: {e}")
+    print(f"ERROR: Failed to load or parse 'push ranges.csv' during module load: {e}")
+    # PUSH_FOLD_RANGES remains {}
 
 
-########################
-# get_push_fold_advice
-########################
+# --- Updated get_push_fold_advice function (with refined error check) ---
 def get_push_fold_advice(stack_bb, position, players_left):
     """
-    Provides push/fold advice based on:
-      stack_bb, position, players_left.
+    Provides push/fold advice based on stack size, position, and players left.
     Returns a 4-tuple:
-      (advice_str, range_list, percentage_float, tips_str)
+      (advice_string, range_list, percentage, tips_string)
+
     Example:
-      -> ("Push top 18.0%", ["A2s","A3s","TT","JJ"], 18.0, "some tips")
+      -> ("Push top 18.0%", ["A2s","A3s","TT","JJ","..."], 18.0, "Some strategy tips here...")
     """
-    if not isinstance(stack_bb, (int,float)) or stack_bb <= 0:
-        return ("Error: Invalid Stack Size.", [], None, "No tips - invalid stack.")
-    
-    # Make sure data is loaded
-    if not PUSH_FOLD_RANGES:
-        # We might attempt to load again or just error
-        return ("Error: 'push ranges.csv' data not loaded.", [], None, "No tips - data missing.")
 
-    # Validate position
-    # Our CSV uses columns = SB,B,CO,HJ,LJ,UTG+3,UTG+2,UTG+1,UTG
-    if position not in ['SB','B','CO','HJ','LJ','UTG+3','UTG+2','UTG+1','UTG']:
-        return (f"Error: Invalid position '{position}'.", [], None, "No tips - invalid position.")
-    
-    # Validate players_left
-    if not isinstance(players_left, int) or players_left < 2 or players_left > 10:
-        return ("Error: Invalid players_left (2-10).", [], None, "No tips - invalid player count.")
+    # --- Input Validation ---
+    if not isinstance(stack_bb, (int, float)) or stack_bb <= 0:
+        # Return a specific error message
+        return ("Error: Invalid Stack Size provided.", [], None, "No tips available due to error.")
 
-    # Find the closest stack in PUSH_FOLD_RANGES
-    stack_keys = sorted(PUSH_FOLD_RANGES.keys())
-    if not stack_keys:
-        return ("Error: No stack data found in memory.", [], None, "No tips - no data.")
-    # find closest
+    position_map = {
+        'SB': 'SB', 'BTN': 'B', 'CO': 'CO', 'HJ': 'HJ', 'LJ': 'LJ',
+        'UTG+3': 'UTG+3', 'UTG+2': 'UTG+2', 'UTG+1': 'UTG+1', 'UTG': 'UTG'
+    }
+    if position not in position_map:
+        return (f"Error: Unknown input position '{position}'.", [], None, "No tips available due to error.")
+
+    mapped_position = position_map.get(position)
+    if mapped_position is None:
+        print(f"ERROR: Logic error in position_map for '{position}'.")
+        return (f"Error: Internal mapping failed for position '{position}'.", [], None, "No tips available.")
+
+    if not isinstance(players_left, int) or not (2 <= players_left <= 10):
+        return ("Error: Invalid Player Count (must be 2-10).", [], None, "Tips not available for invalid player count.")
+
+    # --- Check if Ranges Loaded ---
+    if not PUSH_FOLD_RANGES or not isinstance(PUSH_FOLD_RANGES, dict):
+        print("ERROR: PUSH_FOLD_RANGES dictionary is empty or failed to load correctly!")
+        return ("Error: Push range data not available or failed to load.", [], None, "No tips available due to data error.")
+
+    # Find the closest stack size in the data
+    stack_sizes = sorted(PUSH_FOLD_RANGES.keys())
+    if not stack_sizes:
+        print("ERROR: PUSH_FOLD_RANGES loaded but contains no stack size keys.")
+        return ("Error: No stack sizes found in loaded range data.", [], None, "Tips not available.")
+
     try:
-        closest_stack = min(stack_keys, key=lambda x: abs(x - stack_bb))
+        closest_stack = min(stack_sizes, key=lambda x: abs(x - stack_bb))
     except Exception as e:
-        return (f"Error: Could not find nearest stack for {stack_bb}BB.", [], None, f"No tips - stack error: {e}")
+        print(f"ERROR finding closest stack for {stack_bb} among {stack_sizes}: {e}")
+        return (f"Error processing stack size {stack_bb}BB.", [], None, "No tips due to stack lookup error.")
 
-    data_for_stack = PUSH_FOLD_RANGES.get(closest_stack)
-    if not isinstance(data_for_stack, dict):
-        return (f"Error: Data for {closest_stack}BB not found or invalid format.", [], None, "No tips - data error.")
+    position_data = PUSH_FOLD_RANGES.get(closest_stack)
+    if position_data is None or not isinstance(position_data, dict):
+        print(f"ERROR: Missing data for stack key {closest_stack} in PUSH_FOLD_RANGES.")
+        return (f"Error: No valid range data for stack near {stack_bb}BB", [], None, "No tips available.")
 
-    percentage = data_for_stack.get(position, None)
+    percentage = position_data.get(mapped_position)
     if percentage is None:
-        return (f"Error: Position '{position}' not found for stack={closest_stack}BB.", [], None, "No tips - data mismatch.")
-    if not isinstance(percentage, (int,float)):
-        return (f"Error: Invalid percentage for pos='{position}', stack={closest_stack}BB => {percentage}", [], None, "No tips - data mismatch.")
+        available_keys = list(position_data.keys())
+        print(f"ERROR: Key '{mapped_position}' (from '{position}') not found for stack {closest_stack}BB.")
+        print(f"DEBUG: Available keys: {available_keys}")
+        return (f"Error: No range data for position '{position}' at {closest_stack}BB stack.", [], None, "No tips available.")
 
-    # Get the top range
-    push_range_list = get_top_hands_by_percentage(percentage)
+    if not isinstance(percentage, (int, float)):
+        print(f"ERROR: Percentage value for {closest_stack}BB/{mapped_position} is not a number: {percentage}")
+        return (f"Error: Invalid percentage data for {position} at {closest_stack}BB.", [], None, "No tips for data error.")
 
-    # Advice
-    advice_str = f"Push top {percentage:.1f}%"
-    # Tips string (customize as needed)
-    tips_str = (f"At ~{closest_stack:.1f}BB in {position}, pushing around {percentage:.1f}% of hands is suggested. "
-                "Adjust for ICM or if players are calling more tightly/loosely.")
+    # --- Generate Hand Range ---
+    try:
+        range_list = get_top_hands_by_percentage(percentage)  # Must exist in your code
+        if not isinstance(range_list, list):
+            print(f"ERROR: get_top_hands_by_percentage returned type {type(range_list)} for {percentage}%.")
+            return ("Error generating hand range.", [], percentage, "No tips due to range generation error.")
+    except NameError:
+        print("ERROR: get_top_hands_by_percentage function not defined!")
+        return ("Code Error: Hand generation function missing.", [], percentage, "No tips - function missing.")
+    except Exception as e:
+        print(f"ERROR generating hand range for {percentage}%: {e}")
+        return (f"Runtime Error generating range: {e}", [], percentage, "No tips - runtime error in range gen.")
 
-    return (advice_str, push_range_list, percentage, tips_str)
+    # --- Build Advice & Tips ---
+    advice_string = f"Push top {percentage:.1f}%"
+    # Example tips: adjust or fill in with your real strategy text
+    tips_string = (
+        f"With around {closest_stack}BB in {position}, pushing around {percentage:.1f}% can be profitable. "
+        "Consider table dynamics and how many players are left to act."
+    )
+
+    # Return the 4-tuple
+    return (advice_string, range_list, percentage, tips_string)
 
 
 
-########################
-# Additional calculations if needed
-# (Pot Odds, MDF, etc.) 
-########################
+# --- Other Calculation Functions (Pot Odds, Equity, MDF, SPR etc.) ---
+# (These functions remain unchanged from the user's provided version)
 
 def calculate_pot_odds(amount_to_call, pot_size_before_call):
     """Calculates Pot Odds as a percentage."""

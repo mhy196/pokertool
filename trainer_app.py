@@ -28,7 +28,7 @@ except Exception as e:
 ######################
 # Configuration & Constants
 ######################
-POSITIONS = ["SB", "BTN", "CO", "HJ", "LJ", "UTG+3", "UTG+2", "UTG+1"]
+POSITIONS = ["SB", "B", "CO", "HJ", "LJ", "UTG+3", "UTG+2", "UTG+1"]
 MAX_QUESTIONS = 5
 CARD_IMG_WIDTH = 170
 FEEDBACK_DELAY_SECONDS = 2.0  # 2 seconds delay after user answers
@@ -414,8 +414,8 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("♠️ ♥️ Poker Push/Fold Trainer ♦️ ♣️")
-    st.caption("Practice short-stack tournament decisions.")
+    st.markdown("<h1 style='text-align: center;'>♠️ ♥️ Poker Push/Fold Trainer ♦️ ♣️</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>Practice short-stack tournament decisions.</p>", unsafe_allow_html=True)
 
     if not logic_available:
         st.error("poker_logic.py unavailable.")
