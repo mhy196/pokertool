@@ -28,7 +28,7 @@ except Exception as e:
 ######################
 # Configuration & Constants
 ######################
-POSITIONS = ["SB", "B", "CO", "HJ", "LJ", "UTG+3", "UTG+2", "UTG+1"]
+POSITIONS = ["SB", "B", "CO", "HJ", "LJ"]
 MAX_QUESTIONS = 5
 CARD_IMG_WIDTH = 170
 FEEDBACK_DELAY_SECONDS = 2.0  # 2 seconds delay after user answers
@@ -105,7 +105,7 @@ def generate_specific_card_codes(hand_str):
 ######################
 def generate_random_scenario():
     """
-    Returns (hand, stack, pos, players, card1_code, card2_code).
+    Returns (hand, stack, pos, card1_code, card2_code).
     """
     r1 = random.choice(RANKS)
     r2 = random.choice(RANKS)
@@ -121,10 +121,9 @@ def generate_random_scenario():
 
     stack_bb = random.randint(1, 15)
     pos = random.choice(POSITIONS)
-    players_left = random.randint(2, 9)
 
     card1_code, card2_code = generate_specific_card_codes(hand)
-    return (hand, stack_bb, pos, players_left, card1_code, card2_code)
+    return (hand, stack_bb, pos, card1_code, card2_code)
 
 ######################
 # Initialize
@@ -179,7 +178,7 @@ def display_cards(card1_code, card2_code, container):
 ######################
 def show_question_ui():
     index = st.session_state.current_index
-    hand, stack, pos, players, c1, c2 = st.session_state.scenarios[index]
+    hand, stack, pos, c1, c2 = st.session_state.scenarios[index]
 
     st.markdown("---")
     progress = (index + 1) / MAX_QUESTIONS
@@ -197,10 +196,6 @@ def show_question_ui():
         <div class="info-block position-block">
             <span class="info-label">Position</span>
             <span class="info-value">{pos}</span>
-        </div>
-        <div class="info-block players-block">
-            <span class="info-label">Players</span>
-            <span class="info-value">{players}</span>
         </div>
         <p class='info-text hand-text'>Your Hand: <strong class='highlight-text'>{hand}</strong></p>
         """, unsafe_allow_html=True)
@@ -247,7 +242,7 @@ def show_feedback_ui():
         # In your poker_logic, ensure we return a 4th item: tips_str
         # e.g.: (advice_str, push_range, percentage, tips_str)
         try:
-            advice_str, push_range, percentage, tips_str = get_push_fold_advice(stack, pos, players)
+            advice_str, push_range, percentage, tips_str = get_push_fold_advice(stack, pos)
             if isinstance(advice_str, str) and "Error:" in advice_str:
                 push_range = None
                 percentage = None
@@ -292,7 +287,6 @@ def show_feedback_ui():
         "hand": hand,
         "stack": stack,
         "pos": pos,
-        "players": players,
         "card1": c1,
         "card2": c2,
         "user_action": user_action,
@@ -342,7 +336,7 @@ def show_final_score_ui():
             cL, cR = st.columns([0.75, 0.25])
             with cL:
                 st.markdown(
-                    f"<p class='review-question'><strong>Q{i+1}: {row['hand']}</strong> ({row['stack']}BB, {row['pos']}, {row['players']} left)</p>",
+                    f"<p class='review-question'><strong>Q{i+1}: {row['hand']}</strong> ({row['stack']}BB, {row['pos']})</p>",
                     unsafe_allow_html=True
                 )
                 ua = row['user_action'].upper()
